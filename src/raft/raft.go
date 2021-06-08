@@ -229,6 +229,8 @@ func (rf *Raft) RequestVotesL() {
 
 // 选举rpc
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+	//这里暂时不写特别复杂，只写一些伪代码
+	//rf.sendRequestVote()
 	// Your code here (2A, 2B).
 }
 
@@ -312,7 +314,7 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-var electionTime time.Duration = 50
+const electionTime = 1 * time.Second
 
 //设置选举时间
 func (rf *Raft) SetElectionTime() {
@@ -349,8 +351,21 @@ func (rf *Raft) tick() {
 	if time.Now().After(rf.electionTime) {
 		rf.SetElectionTime()
 		//角色变为候选人，重新开始选举
-
+		rf.startElectionL()
 	}
+}
+
+// 发起选举，因为该方法是在tick里面调用的，方法外部已经获取了锁，所以不用加锁
+func (rf *Raft) startElectionL() {
+	//发起投票当前任期加1
+	rf.currentTerm += 1
+	rf.state = Candidate
+	//先给自己投一票
+	rf.votedFor = rf.me
+	rf.persist()
+	DPrintf("%v:statrt election for term %v\n", rf.me, rf.currentTerm)
+	//给其他节点发送rpc
+	rf.RequestVotesL()
 }
 
 //
