@@ -2,6 +2,7 @@ package raft
 
 import (
 	"6.824/labrpc"
+	rand2 "math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -62,7 +63,7 @@ type Raft struct {
 	applyCh   chan ApplyMsg
 	applyCond *sync.Cond
 
-	state        *RaftState // raft的state由term和isleader构成
+	state        *raftState // raft的state由term和isleader构成
 	electionTime time.Time
 
 	//persistent state
@@ -75,8 +76,8 @@ type Raft struct {
 	lastApplied int // 已经被应用到状态机的最大的日志条目索引(从零开始)
 
 	//leader sate
-	nextIndex  [][]int // 对于每一台服务器，发送到该服务器的下一个日志条目的索引（初始值为领导者最后的日志条目的索引+1）
-	matchIndex [][]int // 对于每一台服务器，已知的已经复制到该服务器的最高日志条目的索引（初始值为0，单调递增）
+	nextIndex  []int // 对于每一台服务器，发送到该服务器的下一个日志条目的索引（初始值为领导者最后的日志条目的索引+1）
+	matchIndex []int // 对于每一台服务器，已知的已经复制到该服务器的最高日志条目的索引（初始值为0，单调递增）
 
 	//Snapshot state
 	snapshot      []byte
@@ -91,9 +92,26 @@ type Raft struct {
 // return currentTerm and whether this server
 // believes it is the leader.
 // 根据这个函数推断出state应该包括两个数据,当前节点任期和是否是leader
-type RaftState struct {
+type raftState struct {
 	term     int
 	isleader bool
+	role     string
+}
+
+var Leader = &raftState{
+	0,
+	true,
+	"Leader",
+}
+var Follower = &raftState{
+	0,
+	false,
+	"Follower",
+}
+var Candidate = &raftState{
+	0,
+	false,
+	"Candidate",
 }
 
 //获取raft的state
@@ -175,6 +193,11 @@ type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
 }
 
+type Log struct {
+	lastLogIndex int //	候选人的最后日志条目的索引值
+	lastLogTerm  int // 候选人最后日志条目的任期号
+}
+
 //
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
@@ -186,9 +209,24 @@ type RequestVoteReply struct {
 	// Your data here (2A).
 }
 
-//
-// example RequestVote RPC handler.
-//
+func (rf *Raft) RequestVotesL() {
+	//初始化投票的参数，这里暂时还有点问题还需要修改
+	//args:=&RequestVoteArgs{
+	//	rf.currentTerm,
+	//	rf.me,
+	//	0,
+	//	0,
+	//}
+	//每个任期只能投1票
+	//votes:=1
+	for i, _ := range rf.peers {
+		//其他节点发送投票prc
+		if i != rf.me {
+			//go rf.RequestVote(i,args,&votes)
+		}
+	}
+}
+
 // 选举rpc
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
@@ -196,7 +234,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 //
 // example code to send a RequestVote RPC to a server.
-// server is the index of the target server in rf.peers[].
+// server is th e index of the target server in rf.peers[].
 // expects RPC arguments in args.
 // fills in *reply with RPC reply, so caller should
 // pass &reply.
@@ -274,14 +312,43 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+var electionTime time.Duration = 50
+
+//设置选举时间
+func (rf *Raft) SetElectionTime() {
+	t := time.Now()
+	t = t.Add(electionTime)
+	ms := rand2.Int63() % 300
+	t = t.Add(time.Duration(ms) * time.Millisecond)
+	rf.electionTime = t
+}
+
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
+//每50毫米执行一此ticker
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
+		rf.tick()
+		ms := 50
+		time.Sleep(time.Duration(ms) * time.Millisecond)
+	}
+}
 
-		// Your code here to check if a leader election should
-		// be started and to randomize sleeping time using
-		// time.Sleep().
+//检查心跳
+func (rf *Raft) tick() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	DPrintf("%v: tick state %v\n", rf.me, rf.state)
+
+	if rf.state == Leader {
+		//设置超时时间
+		rf.SetElectionTime()
+		//这儿暂时不知道干啥
+	}
+	//如果当前时间大于超时时间说明心跳断开了
+	if time.Now().After(rf.electionTime) {
+		rf.SetElectionTime()
+		//角色变为候选人，重新开始选举
 
 	}
 }
@@ -296,7 +363,7 @@ func (rf *Raft) ticker() {
 // tester or service expects Raft to send ApplyMsg messages.
 // Make() must return quickly, so it should start goroutines
 // for any long-running work.
-//
+//这里是用来初始化一个raft对象
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{}
@@ -304,13 +371,23 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
+	rf.applyCh = applyCh
+	rf.applyCond = sync.NewCond(&rf.mu)
 	// Your initialization code here (2A, 2B, 2C).
+
+	rf.state = nil
+
+	//这里应该设置超时时间，但是超时时间应该随机，所以需要一个单独的方法。
+	rf.votedFor = -1
+	rf.log = nil
+
+	rf.nextIndex = make([]int, len(rf.peers))
+	rf.matchIndex = make([]int, len(rf.peers))
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
-
 	return rf
 }
