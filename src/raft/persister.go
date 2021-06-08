@@ -8,6 +8,7 @@ package raft
 // so, while you can modify this code to help you debug, please
 // test with the original before submitting.
 //
+//总体来说就是持久化的一些东西，暂时还没写先简单看看。
 
 import "sync"
 

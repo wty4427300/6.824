@@ -1,39 +1,39 @@
 package raft
 
+import (
+	"6.824/labrpc"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
 //
 // this is an outline of the API that raft must expose to
 // the service (or tester). see comments below for
 // each of these functions for more details.
-//
+// 创建一个新的raft服务
+// 开始协议在一个新的日志条目上
+// 获取一个raft服务当前任期并检查他是不是leader
+// 每次一个新的命令写入日志，每个raft节点应该个发送一个applymsg给同一个服务。
 // rf = Make(...)
-//   create a new Raft server.
+// create a new Raft server.
 // rf.Start(command interface{}) (index, term, isleader)
-//   start agreement on a new log entry
+// start agreement on a new log entry
 // rf.GetState() (term, isLeader)
-//   ask a Raft for its current term, and whether it thinks it is leader
+// ask a Raft for its current term, and whether it thinks it is leader
 // ApplyMsg
-//   each time a new entry is committed to the log, each Raft peer
-//   should send an ApplyMsg to the service (or tester)
-//   in the same server.
+// each time a new entry is committed to the log, each Raft peer
+// should send an ApplyMsg to the service (or tester)
+// in the same server.
 //
 
-import (
-//	"bytes"
-	"sync"
-	"sync/atomic"
-
-//	"6.824/labgob"
-	"6.824/labrpc"
-)
-
-
-//
+// 每个raft节点日志提交成就应该发送applymsg给服务，通过传递给make的CommandValid设置为true表示applymsg包含新的提交日志。
+// 在2d中需要发送其他消息使CommandValid设置为false。
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
 // tester) on the same server, via the applyCh passed to Make(). set
 // CommandValid to true to indicate that the ApplyMsg contains a newly
 // committed log entry.
-//
 // in part 2D you'll want to send other kinds of messages (e.g.,
 // snapshots) on the applyCh, but set CommandValid to false for these
 // other uses.
@@ -42,7 +42,6 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
-
 	// For 2D:
 	SnapshotValid bool
 	Snapshot      []byte
@@ -50,29 +49,60 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
-//
 // A Go object implementing a single Raft peer.
-//
+// 我们要做的就是补全数据结构
 type Raft struct {
-	mu        sync.Mutex          // Lock to protect shared access to this peer's state
+	mu sync.Mutex // Lock to protect shared access to this peer's state
+
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *Persister          // Object to hold this peer's persisted state
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	// Your data here (2A, 2B, 2C).
-	// Look at the paper's Figure 2 for a description of what
-	// state a Raft server must maintain.
+	applyCh   chan ApplyMsg
+	applyCond *sync.Cond
 
+	state        *RaftState // raft的state由term和isleader构成
+	electionTime time.Time
+
+	//persistent state
+	currentTerm int        // 当前的任期
+	votedFor    int        // 当前任期内收到选票的候选者id 如果没有投给任何候选者 则为空
+	log         [][]string // 日志条目(第一个索引为1)
+
+	//volatile state
+	commitIndex int // 已提交的最大的日志条目索引(从零开始)
+	lastApplied int // 已经被应用到状态机的最大的日志条目索引(从零开始)
+
+	//leader sate
+	nextIndex  [][]int // 对于每一台服务器，发送到该服务器的下一个日志条目的索引（初始值为领导者最后的日志条目的索引+1）
+	matchIndex [][]int // 对于每一台服务器，已知的已经复制到该服务器的最高日志条目的索引（初始值为0，单调递增）
+
+	//Snapshot state
+	snapshot      []byte
+	snapshotIndex int
+	snapshotTerm  int
+
+	waitingSnapshot []byte
+	waitingIndex    int //lastIncludedIndex
+	waitingTerm     int //lastIncludedTerm
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
-func (rf *Raft) GetState() (int, bool) {
+// 根据这个函数推断出state应该包括两个数据,当前节点任期和是否是leader
+type RaftState struct {
+	term     int
+	isleader bool
+}
 
+//获取raft的state
+func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
+	term = rf.state.term
+	isleader = rf.state.isleader
 	return term, isleader
 }
 
@@ -81,6 +111,7 @@ func (rf *Raft) GetState() (int, bool) {
 // where it can later be retrieved after a crash and restart.
 // see paper's Figure 2 for a description of what should be persistent.
 //
+// 这里应该是做持久化的地方
 func (rf *Raft) persist() {
 	// Your code here (2C).
 	// Example:
@@ -91,7 +122,6 @@ func (rf *Raft) persist() {
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
 }
-
 
 //
 // restore previously persisted state.
@@ -115,15 +145,12 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
-
 //
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
 // have more recent info since it communicate the snapshot on applyCh.
 //
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
-
 	// Your code here (2D).
-
 	return true
 }
 
@@ -133,15 +160,18 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
-
 }
-
 
 //
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 //
+//投票参数的结构体，字段开头需要大写
 type RequestVoteArgs struct {
+	term         int // 候选人的任期号
+	candidateId  int // 请求选票的候选人的Id
+	lastLogIndex int //	候选人的最后日志条目的索引值
+	lastLogTerm  int // 候选人最后日志条目的任期号
 	// Your data here (2A, 2B).
 }
 
@@ -149,13 +179,17 @@ type RequestVoteArgs struct {
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 //
+//投票回复的结构体，字段开头必须大写。
 type RequestVoteReply struct {
+	term        int  //当前任期号，以便于候选人去更新自己的任期号
+	voteGranted bool //候选人赢得了此张选票时为真
 	// Your data here (2A).
 }
 
 //
 // example RequestVote RPC handler.
 //
+// 选举rpc
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 }
@@ -190,10 +224,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	//获取rpc的client并发送
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
-
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -215,7 +249,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (2B).
-
 
 	return index, term, isLeader
 }
@@ -278,7 +311,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
-
 
 	return rf
 }

@@ -15,11 +15,13 @@ import "math/rand"
 import "sync/atomic"
 import "sync"
 
+//允许在1秒内完成选举，远远超过了论文的超时限制
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
 const RaftElectionTimeout = 1000 * time.Millisecond
 
 func TestInitialElection2A(t *testing.T) {
+	//设置了3个节点
 	servers := 3
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
@@ -27,6 +29,7 @@ func TestInitialElection2A(t *testing.T) {
 	cfg.begin("Test (2A): initial election")
 
 	// is a leader elected?
+	//判断是否只有一个leader
 	cfg.checkOneLeader()
 
 	// sleep a bit to avoid racing with followers learning of the

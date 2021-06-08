@@ -7,6 +7,7 @@ package raft
 // so, while you can modify this code to help you debug, please
 // test with the original before submitting.
 //
+//暂时理解为这是设置集群数的
 
 import "6.824/labgob"
 import "6.824/labrpc"
@@ -62,6 +63,7 @@ var ncpu_once sync.Once
 func make_config(t *testing.T, n int, unreliable bool, snapshot bool) *config {
 	ncpu_once.Do(func() {
 		if runtime.NumCPU() < 2 {
+			//单个cpu吃你家大米了？干！
 			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
 		}
 		rand.Seed(makeSeed())
@@ -367,6 +369,8 @@ func (cfg *config) setlongreordering(longrel bool) {
 	cfg.net.LongReordering(longrel)
 }
 
+// 检查是否成功选举出了一个领导
+// 简单看了下代码，就是获取所有节点的状态，
 // check that there's exactly one leader.
 // try a few times in case re-elections are needed.
 func (cfg *config) checkOneLeader() int {
@@ -374,6 +378,7 @@ func (cfg *config) checkOneLeader() int {
 		ms := 450 + (rand.Int63() % 100)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 
+		//这个map的key是int value是[]int
 		leaders := make(map[int][]int)
 		for i := 0; i < cfg.n; i++ {
 			if cfg.connected[i] {
