@@ -67,9 +67,9 @@ type Raft struct {
 	electionTime time.Time
 
 	//persistent state
-	currentTerm int        // 当前的任期
-	votedFor    int        // 当前任期内收到选票的候选者id 如果没有投给任何候选者 则为空
-	log         [][]string // 日志条目(第一个索引为1)
+	currentTerm int // 当前的任期
+	votedFor    int // 当前任期内收到选票的候选者id 如果没有投给任何候选者 则为空
+	log         Log // 日志条目(第一个索引为1)
 
 	//volatile state
 	commitIndex int // 已提交的最大的日志条目索引(从零开始)
@@ -193,11 +193,6 @@ type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
 }
 
-type Log struct {
-	lastLogIndex int //	候选人的最后日志条目的索引值
-	lastLogTerm  int // 候选人最后日志条目的任期号
-}
-
 //
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
@@ -230,39 +225,36 @@ func (rf *Raft) RequestVotesL() {
 // 选举rpc
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	//这里暂时不写特别复杂，只写一些伪代码
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	//如果投票的任期大于节点现在任期，那么就同意这次投票
+	if args.term > rf.currentTerm {
+		rf.newTermL(args.term)
+	}
 	//rf.sendRequestVote()
 	// Your code here (2A, 2B).
 }
 
-//
-// example code to send a RequestVote RPC to a server.
-// server is th e index of the target server in rf.peers[].
-// expects RPC arguments in args.
-// fills in *reply with RPC reply, so caller should
-// pass &reply.
-// the types of the args and reply passed to Call() must be
-// the same as the types of the arguments declared in the
-// handler function (including whether they are pointers).
-//
-// The labrpc package simulates a lossy network, in which servers
-// may be unreachable, and in which requests and replies may be lost.
-// Call() sends a request and waits for a reply. If a reply arrives
-// within a timeout interval, Call() returns true; otherwise
-// Call() returns false. Thus Call() may not return for a while.
-// A false return can be caused by a dead server, a live server that
-// can't be reached, a lost request, or a lost reply.
-//
-// Call() is guaranteed to return (perhaps after a delay) *except* if the
-// handler function on the server side does not return.  Thus there
-// is no need to implement your own timeouts around Call().
-//
-// look at the comments in ../labrpc/labrpc.go for more details.
-//
-// if you're having trouble getting RPC to work, check that you've
-// capitalized all field names in structs passed over RPC, and
-// that the caller passes the address of the reply struct with &, not
-// the struct itself.
-//
+//成为leader后需要修改的一些状态
+func (rf *Raft) becomeLeaderL() {
+	DPrintf("%v becomeLeader")
+	rf.state = Leader
+	for i := range rf.nextIndex {
+		println(i)
+		//这里需要重新设置一下应该发送的日志，但是我的日志结构还没设计好暂时先这样吧
+		//rf.nextIndex[i]=rf
+	}
+}
+
+func (rf *Raft) newTermL(term int) {
+	DPrintf("%v newTerm %v follower\n", rf.me, term)
+	rf.currentTerm = term
+	//因为在新的任期中还没有投票所以设置为-1
+	rf.votedFor = -1
+	rf.state = Follower
+	rf.persist()
+}
+
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	//获取rpc的client并发送
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
@@ -394,7 +386,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	//这里应该设置超时时间，但是超时时间应该随机，所以需要一个单独的方法。
 	rf.votedFor = -1
-	rf.log = nil
+
+	rf.log = mkLogEntry()
 
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
