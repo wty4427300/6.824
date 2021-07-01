@@ -35,12 +35,14 @@ func TestInitialElection2A(t *testing.T) {
 	// sleep a bit to avoid racing with followers learning of the
 	// election, then check that all peers agree on the term.
 	time.Sleep(50 * time.Millisecond)
+	//检查任期,如果选举成功term就一定不是-1
 	term1 := cfg.checkTerms()
 	if term1 < 1 {
 		t.Fatalf("term is %v, but should be at least 1", term1)
 	}
 
 	// does the leader+term stay the same if there is no network failure?
+	//发起一次新的选举看看任期是否发生了变化
 	time.Sleep(2 * RaftElectionTimeout)
 	term2 := cfg.checkTerms()
 	if term1 != term2 {

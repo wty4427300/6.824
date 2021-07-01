@@ -63,7 +63,7 @@ type Raft struct {
 	applyCh   chan ApplyMsg
 	applyCond *sync.Cond
 
-	state        *raftState // raft的state由term和isleader构成
+	state        raftState // raft的state由term和isleader构成
 	electionTime time.Time
 
 	//persistent state
@@ -89,29 +89,31 @@ type Raft struct {
 	waitingTerm     int //lastIncludedTerm
 }
 
-// return currentTerm and whether this server
-// believes it is the leader.
-// 根据这个函数推断出state应该包括两个数据,当前节点任期和是否是leader
-type raftState struct {
-	term     int
-	isleader bool
-	role     string
+type raftState uint64
+
+const (
+	Follower raftState = iota
+	Candidate
+	Leader
+	StatePreCandidate
+	numStates
+)
+
+// 下面附带一些会用到的一些角色转换的函数。
+func (rf *Raft) convertToCandidate() {
+	rf.state = Candidate
+	rf.currentTerm++
+	rf.votedFor = rf.me
 }
 
-var Leader = &raftState{
-	0,
-	true,
-	"Leader",
+func (rf *Raft) convertToFollower(newTerm int) {
+	rf.state = Follower
+	rf.currentTerm = newTerm
+	rf.votedFor = -1
 }
-var Follower = &raftState{
-	0,
-	false,
-	"Follower",
-}
-var Candidate = &raftState{
-	0,
-	false,
-	"Candidate",
+
+func (rf *Raft) convertToLeader() {
+	rf.state = Leader
 }
 
 //获取raft的state
@@ -119,8 +121,12 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
-	term = rf.state.term
-	isleader = rf.state.isleader
+	term = rf.currentTerm
+	if rf.state == Leader {
+		isleader = true
+	} else {
+		isleader = false
+	}
 	return term, isleader
 }
 
@@ -186,10 +192,10 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 //
 //投票参数的结构体，字段开头需要大写
 type RequestVoteArgs struct {
-	term         int // 候选人的任期号
-	candidateId  int // 请求选票的候选人的Id
-	lastLogIndex int //	候选人的最后日志条目的索引值
-	lastLogTerm  int // 候选人最后日志条目的任期号
+	Term         int // 候选人的任期号
+	CandidateId  int // 请求选票的候选人的Id
+	LastLogIndex int //	候选人的最后日志条目的索引值
+	LastLogTerm  int // 候选人最后日志条目的任期号
 	// Your data here (2A, 2B).
 }
 
@@ -199,45 +205,61 @@ type RequestVoteArgs struct {
 //
 //投票回复的结构体，字段开头必须大写。
 type RequestVoteReply struct {
-	term        int  //当前任期号，以便于候选人去更新自己的任期号
-	voteGranted bool //候选人赢得了此张选票时为真
+	Term        int  //当前任期号，以便于候选人去更新自己的任期号
+	VoteGranted bool //候选人赢得了此张选票时为真
 	// Your data here (2A).
 }
 
 func (rf *Raft) RequestVotesL() {
 	//初始化投票的参数，这里暂时还有点问题还需要修改
-	//args:=&RequestVoteArgs{
-	//	rf.currentTerm,
-	//	rf.me,
-	//	0,
-	//	0,
-	//}
+	args := &RequestVoteArgs{
+		rf.currentTerm,
+		rf.me,
+		//当前节点的最后的日志索引
+		len(rf.log.log) - 1,
+		//最后的term
+		rf.log.log[len(rf.log.log)-1].Term,
+	}
+	var reply = RequestVoteReply{}
 	//每个任期只能投1票
-	//votes:=1
+	votes := 1
+	//遍历所有的节点向除了本节点以外的所有节点发送投票
 	for i, _ := range rf.peers {
 		//其他节点发送投票prc
 		if i != rf.me {
-			//go rf.RequestVote(i,args,&votes)
+			go rf.RequestVote(args, &reply, votes, i)
 		}
 	}
 }
 
 // 选举rpc
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	//这里暂时不写特别复杂，只写一些伪代码
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	//如果投票的任期大于节点现在任期，那么就同意这次投票
-	if args.term > rf.currentTerm {
-		rf.newTermL(args.term)
+func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply, votes int, peer int) {
+	//给其他节点发送投票
+	vote := rf.sendRequestVote(peer, args, reply)
+	if vote {
+		rf.mu.Lock()
+		defer rf.mu.Unlock()
+		//如果投票的任期大于节点现在任期，那么就同意这次投票
+		if args.Term > rf.currentTerm {
+			rf.newTermL(args.Term)
+			reply.VoteGranted = true
+		}
+		//投票成功
+		if reply.VoteGranted {
+			votes += 1
+			//获得一半以上的选票
+			if votes > len(rf.peers)/2 {
+				if rf.currentTerm == args.Term {
+					rf.becomeLeaderL()
+				}
+			}
+		}
 	}
-	//rf.sendRequestVote()
-	// Your code here (2A, 2B).
 }
 
 //成为leader后需要修改的一些状态
 func (rf *Raft) becomeLeaderL() {
-	DPrintf("%v becomeLeader")
+	DPrintf("becomeLeader")
 	rf.state = Leader
 	for i := range rf.nextIndex {
 		println(i)
@@ -310,9 +332,13 @@ const electionTime = 1 * time.Second
 
 //设置选举时间
 func (rf *Raft) SetElectionTime() {
+	//现在的时间
 	t := time.Now()
+	//超时的时间
 	t = t.Add(electionTime)
+	//随机的毫秒数
 	ms := rand2.Int63() % 300
+	//随机后的超时时间
 	t = t.Add(time.Duration(ms) * time.Millisecond)
 	rf.electionTime = t
 }
@@ -329,18 +355,20 @@ func (rf *Raft) ticker() {
 }
 
 //检查心跳
+//如果当前节点是leader就重置超时时间
+//如果当前节点不是leader(那就是follow)并且当前选举超时时间没有收到心跳，则重置心跳超时时间重新选举
 func (rf *Raft) tick() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	DPrintf("%v: tick state %v\n", rf.me, rf.state)
-
+	//随机超时时间
 	if rf.state == Leader {
 		//设置超时时间
 		rf.SetElectionTime()
-		//这儿暂时不知道干啥
 	}
 	//如果当前时间大于超时时间说明心跳断开了
 	if time.Now().After(rf.electionTime) {
+		//随机超时时间
 		rf.SetElectionTime()
 		//角色变为候选人，重新开始选举
 		rf.startElectionL()
@@ -351,11 +379,12 @@ func (rf *Raft) tick() {
 func (rf *Raft) startElectionL() {
 	//发起投票当前任期加1
 	rf.currentTerm += 1
+	//先将自己变成Candidate
 	rf.state = Candidate
 	//先给自己投一票
 	rf.votedFor = rf.me
 	rf.persist()
-	DPrintf("%v:statrt election for term %v\n", rf.me, rf.currentTerm)
+	DPrintf("%v:发起选举 for term %v\n", rf.me, rf.currentTerm)
 	//给其他节点发送rpc
 	rf.RequestVotesL()
 }
@@ -381,21 +410,21 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.applyCh = applyCh
 	rf.applyCond = sync.NewCond(&rf.mu)
 	// Your initialization code here (2A, 2B, 2C).
+	//因为现在是在做一些初始化的处理所以term和state都应该初始化状态
+	//初始状态下大家都是follow
+	rf.currentTerm = 0
+	rf.state = Follower
+	rf.SetElectionTime()
 
-	rf.state = nil
-
-	//这里应该设置超时时间，但是超时时间应该随机，所以需要一个单独的方法。
 	rf.votedFor = -1
-
 	rf.log = mkLogEntry()
 
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 
 	// initialize from state persisted before a crash
-	rf.readPersist(persister.ReadRaftState())
+	//rf.readPersist(persister.ReadRaftState())
 
-	// start ticker goroutine to start elections
 	go rf.ticker()
 	return rf
 }

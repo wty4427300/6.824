@@ -379,6 +379,7 @@ func (cfg *config) checkOneLeader() int {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 
 		//这个map的key是int value是[]int
+		//获取领导人和对应的term
 		leaders := make(map[int][]int)
 		for i := 0; i < cfg.n; i++ {
 			if cfg.connected[i] {
@@ -387,7 +388,7 @@ func (cfg *config) checkOneLeader() int {
 				}
 			}
 		}
-
+		// 判断有没有在一个周期内选出两个领导人，找到最新的Term。
 		lastTermWithLeader := -1
 		for term, leaders := range leaders {
 			if len(leaders) > 1 {
@@ -397,7 +398,7 @@ func (cfg *config) checkOneLeader() int {
 				lastTermWithLeader = term
 			}
 		}
-
+		//返回最新的leader
 		if len(leaders) != 0 {
 			return leaders[lastTermWithLeader][0]
 		}

@@ -1,7 +1,5 @@
 package raft
 
-import "fmt"
-
 //具体的日志内容实例
 type Entry struct {
 	Command interface{} //日志条目
@@ -14,10 +12,10 @@ type Log struct {
 	index0 int     //快照索引
 }
 
-//打印日志
-func (e Entry) String() string {
-	return fmt.Sprint("T %v", e.Term)
-}
+////打印日志
+//func (e Entry) String() string {
+//	return fmt.Sprint("T %v", e.Term)
+//}
 
 //初始化log
 func mkLogEntry() Log {
