@@ -260,7 +260,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply, vote
 //成为leader后需要修改的一些状态
 func (rf *Raft) becomeLeaderL() {
 	DPrintf("becomeLeader")
-	rf.state = Leader
+	rf.state = Leader 
 	for i := range rf.nextIndex {
 		println(i)
 		//这里需要重新设置一下应该发送的日志，但是我的日志结构还没设计好暂时先这样吧
