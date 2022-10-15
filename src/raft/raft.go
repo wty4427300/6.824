@@ -28,7 +28,7 @@ import (
 // in the same server.
 //
 
-// 每个raft节点日志提交成就应该发送applymsg给服务，通过传递给make的CommandValid设置为true表示applymsg包含新的提交日志。
+// ApplyMsg 每个raft节点日志提交成就应该发送applymsg给服务，通过传递给make的CommandValid设置为true表示applymsg包含新的提交日志。
 // 在2d中需要发送其他消息使CommandValid设置为false。
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
@@ -50,7 +50,7 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
-// A Go object implementing a single Raft peer.
+// Raft A Go object implementing a single Raft peer.
 // 我们要做的就是补全数据结构
 type Raft struct {
 	mu sync.Mutex // Lock to protect shared access to this peer's state
@@ -60,11 +60,13 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	applyCh   chan ApplyMsg
-	applyCond *sync.Cond
+	applyCh        chan ApplyMsg
+	applyCond      *sync.Cond
+	replicatorCond []*sync.Cond // used to signal replicator goroutine to batch replicating entries
 
-	state        raftState // raft的state由term和isleader构成
-	electionTime time.Time
+	state          raftState // raft的state由term和isleader构成
+	electionTime   time.Time // 选举时间
+	heartbeatTimer time.Time // 心跳时间
 
 	//persistent state
 	currentTerm int // 当前的任期
@@ -116,7 +118,7 @@ func (rf *Raft) convertToLeader() {
 	rf.state = Leader
 }
 
-//获取raft的state
+// GetState 获取raft的state
 func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
@@ -169,7 +171,7 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
-//
+// CondInstallSnapshot
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
 // have more recent info since it communicate the snapshot on applyCh.
 //
@@ -178,7 +180,7 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 	return true
 }
 
-// the service says it has created a snapshot that has
+// Snapshot the service says it has created a snapshot that has
 // all info up to and including index. this means the
 // service no longer needs the log through (and including)
 // that index. Raft should now trim its log as much as possible.
@@ -186,7 +188,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 }
 
-//
+// RequestVoteArgs
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 //
@@ -199,7 +201,7 @@ type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
 }
 
-//
+// RequestVoteReply
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 //
@@ -232,7 +234,7 @@ func (rf *Raft) RequestVotesL() {
 	}
 }
 
-// 选举rpc
+// RequestVote 选举rpc
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply, votes int, peer int) {
 	//给其他节点发送投票
 	vote := rf.sendRequestVote(peer, args, reply)
@@ -260,7 +262,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply, vote
 //成为leader后需要修改的一些状态
 func (rf *Raft) becomeLeaderL() {
 	DPrintf("becomeLeader")
-	rf.state = Leader 
+	rf.state = Leader
 	for i := range rf.nextIndex {
 		println(i)
 		//这里需要重新设置一下应该发送的日志，但是我的日志结构还没设计好暂时先这样吧
@@ -283,7 +285,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
-//
+// Start
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
@@ -307,7 +309,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	return index, term, isLeader
 }
 
-//
+// Kill
 // the tester doesn't halt goroutines created by Raft after each test,
 // but it does call the Kill() method. your code can use killed() to
 // check whether Kill() has been called. the use of atomic avoids the
@@ -330,7 +332,7 @@ func (rf *Raft) killed() bool {
 
 const electionTime = 1 * time.Second
 
-//设置选举时间
+// SetElectionTime 设置选举时间
 func (rf *Raft) SetElectionTime() {
 	//现在的时间
 	t := time.Now()
@@ -389,7 +391,7 @@ func (rf *Raft) startElectionL() {
 	rf.RequestVotesL()
 }
 
-//
+// Make
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
@@ -402,29 +404,26 @@ func (rf *Raft) startElectionL() {
 //这里是用来初始化一个raft对象
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
-	rf := &Raft{}
-	rf.peers = peers
-	rf.persister = persister
-	rf.me = me
-
-	rf.applyCh = applyCh
-	rf.applyCond = sync.NewCond(&rf.mu)
-	// Your initialization code here (2A, 2B, 2C).
-	//因为现在是在做一些初始化的处理所以term和state都应该初始化状态
-	//初始状态下大家都是follow
-	rf.currentTerm = 0
-	rf.state = Follower
+	//初始化raft
+	rf := &Raft{
+		peers:          peers,
+		persister:      persister,
+		me:             me,
+		dead:           0,
+		applyCh:        applyCh,
+		replicatorCond: make([]*sync.Cond, len(peers)),
+		state:          Follower,
+		currentTerm:    0,
+		votedFor:       -1,
+		log:            mkLogEntry(),
+		nextIndex:      make([]int, len(peers)),
+		matchIndex:     make([]int, len(peers)),
+	}
+	//初始化选举时间
 	rf.SetElectionTime()
-
-	rf.votedFor = -1
-	rf.log = mkLogEntry()
-
-	rf.nextIndex = make([]int, len(rf.peers))
-	rf.matchIndex = make([]int, len(rf.peers))
-
+	rf.applyCond = sync.NewCond(&rf.mu)
 	// initialize from state persisted before a crash
-	//rf.readPersist(persister.ReadRaftState())
-
+	rf.readPersist(persister.ReadRaftState())
 	go rf.ticker()
 	return rf
 }
