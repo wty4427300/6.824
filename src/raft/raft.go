@@ -28,7 +28,7 @@ import (
 // in the same server.
 //
 
-// 每个raft节点日志提交成就应该发送applymsg给服务，通过传递给make的CommandValid设置为true表示applymsg包含新的提交日志。
+// ApplyMsg 每个raft节点日志提交成就应该发送applymsg给服务，通过传递给make的CommandValid设置为true表示applymsg包含新的提交日志。
 // 在2d中需要发送其他消息使CommandValid设置为false。
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
@@ -50,7 +50,7 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
-// A Go object implementing a single Raft peer.
+// Raft A Go object implementing a single Raft peer.
 // 我们要做的就是补全数据结构
 type Raft struct {
 	mu sync.Mutex // Lock to protect shared access to this peer's state
@@ -117,7 +117,7 @@ func (rf *Raft) convertToLeader() {
 	rf.state = Leader
 }
 
-//获取raft的state
+// GetState 获取raft的state
 func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
@@ -131,7 +131,6 @@ func (rf *Raft) GetState() (int, bool) {
 	return term, isleader
 }
 
-//
 // save Raft's persistent state to stable storage,
 // where it can later be retrieved after a crash and restart.
 // see paper's Figure 2 for a description of what should be persistent.
@@ -170,7 +169,7 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
-//
+// CondInstallSnapshot
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
 // have more recent info since it communicate the snapshot on applyCh.
 //
@@ -179,7 +178,7 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 	return true
 }
 
-// the service says it has created a snapshot that has
+// Snapshot the service says it has created a snapshot that has
 // all info up to and including index. this means the
 // service no longer needs the log through (and including)
 // that index. Raft should now trim its log as much as possible.
@@ -187,7 +186,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 }
 
-//
+// RequestVoteArgs
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 //
@@ -200,7 +199,7 @@ type RequestVoteArgs struct {
 	LastLogTerm  int // 候选人最后日志条目的任期号
 }
 
-//
+// RequestVoteReply
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 //
@@ -305,7 +304,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
-//
+// Start
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
@@ -329,7 +328,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	return index, term, isLeader
 }
 
-//
+// Kill
 // the tester doesn't halt goroutines created by Raft after each test,
 // but it does call the Kill() method. your code can use killed() to
 // check whether Kill() has been called. the use of atomic avoids the
@@ -411,7 +410,7 @@ func (rf *Raft) startElectionL() {
 	rf.RequestVotesL()
 }
 
-//
+// Make
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
