@@ -65,6 +65,7 @@ type Raft struct {
 
 	state        raftState // raft的state由term和isleader构成
 	electionTime time.Time
+	heartBeat    time.Duration
 
 	//persistent state
 	currentTerm int // 当前的任期
@@ -192,11 +193,11 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 //
 //投票参数的结构体，字段开头需要大写
 type RequestVoteArgs struct {
+	// Your data here (2A, 2B).
 	Term         int // 候选人的任期号
 	CandidateId  int // 请求选票的候选人的Id
 	LastLogIndex int //	候选人的最后日志条目的索引值
 	LastLogTerm  int // 候选人最后日志条目的任期号
-	// Your data here (2A, 2B).
 }
 
 //
@@ -205,14 +206,14 @@ type RequestVoteArgs struct {
 //
 //投票回复的结构体，字段开头必须大写。
 type RequestVoteReply struct {
+	// Your data here (2A).
 	Term        int  //当前任期号，以便于候选人去更新自己的任期号
 	VoteGranted bool //候选人赢得了此张选票时为真
-	// Your data here (2A).
 }
 
 func (rf *Raft) RequestVotesL() {
 	//初始化投票的参数，这里暂时还有点问题还需要修改
-	args := &RequestVoteArgs{
+	args := RequestVoteArgs{
 		rf.currentTerm,
 		rf.me,
 		//当前节点的最后的日志索引
@@ -227,33 +228,54 @@ func (rf *Raft) RequestVotesL() {
 	for i, _ := range rf.peers {
 		//其他节点发送投票prc
 		if i != rf.me {
-			go rf.RequestVote(votes, i, args, &reply)
+			go rf.candidateRequestVote(&args, &reply, votes, i)
 		}
 	}
 }
 
-// 选举rpc
-func (rf *Raft) RequestVote(votes int, peer int, args *RequestVoteArgs, reply *RequestVoteReply) {
+func (rf *Raft) candidateRequestVote(args *RequestVoteArgs, reply *RequestVoteReply, votes int, serverId int) {
+	ok := rf.sendRequestVote(serverId, args, reply)
+	if !ok {
+		return
+	}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if reply.Term > args.Term {
+		rf.newTermL(reply.Term)
+		return
+	}
+	if reply.Term < args.Term {
+		return
+	}
+	if !reply.VoteGranted {
+		return
+	}
+	//获取选票
+	votes += 1
+	if votes > len(rf.peers)/2 &&
+		rf.currentTerm == args.Term &&
+		rf.state == Candidate {
+		if rf.currentTerm == args.Term {
+			rf.becomeLeaderL()
+		}
+	}
+}
+
+// RequestVote 投票
+func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	//给其他节点发送投票
-	vote := rf.sendRequestVote(peer, args, reply)
-	if vote {
-		rf.mu.Lock()
-		defer rf.mu.Unlock()
-		//如果投票的任期大于节点现在任期，那么就同意这次投票
-		if args.Term > rf.currentTerm {
-			rf.newTermL(args.Term)
-			reply.VoteGranted = true
-		}
-		//投票成功
-		if reply.VoteGranted {
-			votes += 1
-			//获得一半以上的选票
-			if votes > len(rf.peers)/2 {
-				if rf.currentTerm == args.Term {
-					rf.becomeLeaderL()
-				}
-			}
-		}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	//投票失败
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false
+		return
+	}
+	//如果投票的任期大于节点现在任期，那么就同意这次投票
+	if args.Term > rf.currentTerm {
+		rf.newTermL(args.Term)
+		reply.VoteGranted = true
 	}
 }
 
@@ -330,8 +352,8 @@ func (rf *Raft) killed() bool {
 
 const electionTime = 1 * time.Second
 
-//设置选举时间
-func (rf *Raft) SetElectionTime() {
+//设置选举时间,为了减少选举冲突,这里每次选举的时间随机
+func (rf *Raft) setElectionTime() {
 	//现在的时间
 	t := time.Now()
 	//超时的时间
@@ -364,18 +386,18 @@ func (rf *Raft) tick() {
 	//随机超时时间
 	if rf.state == Leader {
 		//设置超时时间
-		rf.SetElectionTime()
+		rf.setElectionTime()
 	}
 	//如果当前时间大于超时时间说明心跳断开了
 	if time.Now().After(rf.electionTime) {
 		//随机超时时间
-		rf.SetElectionTime()
+		rf.setElectionTime()
 		//角色变为候选人，重新开始选举
 		rf.startElectionL()
 	}
 }
 
-// 发起选举，因为该方法是在tick里面调用的，方法外部已经获取了锁，所以不用加锁
+// 起选举，因为该方法是在tick里面调用的，方法外部已经获取了锁，所以不用加锁
 func (rf *Raft) startElectionL() {
 	//发起投票当前任期加1
 	rf.currentTerm += 1
@@ -406,24 +428,27 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-
-	rf.applyCh = applyCh
-	rf.applyCond = sync.NewCond(&rf.mu)
 	// Your initialization code here (2A, 2B, 2C).
-	//因为现在是在做一些初始化的处理所以term和state都应该初始化状态
-	//初始状态下大家都是follow
-	rf.currentTerm = 0
+	//刚开始所有的节点都是follower,term从0开始
 	rf.state = Follower
-	rf.SetElectionTime()
-
+	rf.currentTerm = 0
 	rf.votedFor = -1
+	//心跳时间
+	rf.heartBeat = 100 * time.Millisecond
+	//设置选举的时间
+	rf.setElectionTime()
+	//初始化日志
 	rf.log = mkLogEntry()
-
+	rf.commitIndex = 0
+	rf.lastApplied = 0
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 
+	rf.applyCh = applyCh
+	rf.applyCond = sync.NewCond(&rf.mu)
+
 	// initialize from state persisted before a crash
-	//rf.readPersist(persister.ReadRaftState())
+	rf.readPersist(persister.ReadRaftState())
 
 	go rf.ticker()
 	return rf
