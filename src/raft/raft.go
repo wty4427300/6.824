@@ -227,13 +227,13 @@ func (rf *Raft) RequestVotesL() {
 	for i, _ := range rf.peers {
 		//其他节点发送投票prc
 		if i != rf.me {
-			go rf.RequestVote(args, &reply, votes, i)
+			go rf.RequestVote(votes, i, args, &reply)
 		}
 	}
 }
 
 // 选举rpc
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply, votes int, peer int) {
+func (rf *Raft) RequestVote(votes int, peer int, args *RequestVoteArgs, reply *RequestVoteReply) {
 	//给其他节点发送投票
 	vote := rf.sendRequestVote(peer, args, reply)
 	if vote {
@@ -260,7 +260,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply, vote
 //成为leader后需要修改的一些状态
 func (rf *Raft) becomeLeaderL() {
 	DPrintf("becomeLeader")
-	rf.state = Leader 
+	rf.state = Leader
 	for i := range rf.nextIndex {
 		println(i)
 		//这里需要重新设置一下应该发送的日志，但是我的日志结构还没设计好暂时先这样吧
