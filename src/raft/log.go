@@ -1,21 +1,23 @@
 package raft
 
-//具体的日志内容实例
+import "fmt"
+
+// Entry 具体的日志内容实例
 type Entry struct {
 	Command interface{} //日志条目
-	Term    int         // 候选人最后日志条目的任期号
+	Term    int         //候选人最后日志条目的任期号
 }
 
-//日志
+// Log 日志
 type Log struct {
 	log    []Entry //日志
 	index0 int     //快照索引
 }
 
 ////打印日志
-//func (e Entry) String() string {
-//	return fmt.Sprint("T %v", e.Term)
-//}
+func (e Entry) String() string {
+	return fmt.Sprintf("term %v", e.Term)
+}
 
 //初始化log
 func mkLogEntry() Log {
