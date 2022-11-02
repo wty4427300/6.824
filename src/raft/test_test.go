@@ -41,7 +41,7 @@ func TestInitialElection2A(t *testing.T) {
 		t.Fatalf("term is %v, but should be at least 1", term1)
 	}
 
-	// does the leader+term stay the same if there is no network failure?
+	//does the leader+term stay the same if there is no network failure?
 	//发起一次新的选举看看任期是否发生了变化
 	time.Sleep(2 * RaftElectionTimeout)
 	term2 := cfg.checkTerms()

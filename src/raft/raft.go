@@ -64,7 +64,7 @@ type Raft struct {
 	applyCond *sync.Cond
 
 	state        raftState // raft的state由term和isleader构成
-	electionTime time.Time
+	electionTime time.Time // 选举时间
 	heartBeat    time.Duration
 
 	//persistent state
@@ -96,8 +96,6 @@ const (
 	Follower raftState = iota
 	Candidate
 	Leader
-	StatePreCandidate
-	numStates
 )
 
 // 下面附带一些会用到的一些角色转换的函数。
@@ -251,12 +249,11 @@ func (rf *Raft) candidateRequestVote(args *RequestVoteArgs, reply *RequestVoteRe
 	}
 	//获取选票
 	votes += 1
+	//获取一半以上的投票
 	if votes > len(rf.peers)/2 &&
 		rf.currentTerm == args.Term &&
 		rf.state == Candidate {
-		if rf.currentTerm == args.Term {
-			rf.becomeLeaderL()
-		}
+		rf.becomeLeaderL()
 	}
 }
 
@@ -273,24 +270,29 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 	//如果投票的任期大于节点现在任期，那么就同意这次投票
 	if args.Term > rf.currentTerm {
+		//投票成功需要更新自己的term
 		rf.newTermL(args.Term)
 		reply.VoteGranted = true
+		rf.votedFor = args.CandidateId
+		rf.persist()
+		rf.setElectionTime()
 	}
+	reply.Term = rf.currentTerm
 }
 
 //成为leader后需要修改的一些状态
 func (rf *Raft) becomeLeaderL() {
-	DPrintf("becomeLeader")
+	DPrintf("节点[%v] becomeLeader", rf.me)
 	rf.state = Leader
-	for i := range rf.nextIndex {
-		println(i)
-		//这里需要重新设置一下应该发送的日志，但是我的日志结构还没设计好暂时先这样吧
-		//rf.nextIndex[i]=rf
+	for i := range rf.peers {
+		lastLogIndex := len(rf.log.log) - 1
+		rf.nextIndex[i] = lastLogIndex
+		rf.matchIndex[i] = 0
 	}
 }
 
 func (rf *Raft) newTermL(term int) {
-	DPrintf("%v newTerm %v follower\n", rf.me, term)
+	DPrintf("节点[%v] newTerm %v follower\n", rf.me, term)
 	rf.currentTerm = term
 	//因为在新的任期中还没有投票所以设置为-1
 	rf.votedFor = -1
@@ -366,12 +368,10 @@ func (rf *Raft) setElectionTime() {
 
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
-//每50毫米执行一此ticker
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
 		rf.tick()
-		ms := 50
-		time.Sleep(time.Duration(ms) * time.Millisecond)
+		time.Sleep(rf.heartBeat)
 	}
 }
 
@@ -381,8 +381,8 @@ func (rf *Raft) ticker() {
 func (rf *Raft) tick() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("%v: tick state %v\n", rf.me, rf.state)
-	//随机超时时间
+	//DPrintf("节点[%v]: tick state %v\n", rf.me, rf.state)
+	//随机超时时间减少选举冲突
 	if rf.state == Leader {
 		//设置超时时间
 		rf.setElectionTime()
@@ -391,7 +391,7 @@ func (rf *Raft) tick() {
 	if time.Now().After(rf.electionTime) {
 		//随机超时时间
 		rf.setElectionTime()
-		//角色变为候选人，重新开始选举
+		//角色变为候选人,重新开始选举
 		rf.startElectionL()
 	}
 }
@@ -399,13 +399,13 @@ func (rf *Raft) tick() {
 // 起选举，因为该方法是在tick里面调用的，方法外部已经获取了锁，所以不用加锁
 func (rf *Raft) startElectionL() {
 	//发起投票当前任期加1
-	rf.currentTerm += 1
+	rf.currentTerm++
 	//先将自己变成Candidate
 	rf.state = Candidate
 	//先给自己投一票
 	rf.votedFor = rf.me
 	rf.persist()
-	DPrintf("%v:发起选举 for term %v\n", rf.me, rf.currentTerm)
+	DPrintf("节点[%v]:发起选举 for term %v\n", rf.me, rf.currentTerm)
 	//给其他节点发送rpc
 	rf.RequestVotesL()
 }
@@ -438,7 +438,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.setElectionTime()
 	//初始化日志
 	rf.log = mkLogEntry()
+	//已提交的最大日志索引
 	rf.commitIndex = 0
+	//已应用到状态机的最新日志索引
 	rf.lastApplied = 0
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
@@ -448,7 +450,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
+	//发送心跳
 	go rf.ticker()
 	return rf
 }
