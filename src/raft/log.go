@@ -14,7 +14,7 @@ type Log struct {
 	index0 int     //快照索引
 }
 
-////打印日志
+//打印日志
 func (e Entry) String() string {
 	return fmt.Sprintf("term %v", e.Term)
 }
@@ -45,4 +45,8 @@ func (l *Log) cutend(index int) {
 func (l *Log) cutstart(index int) {
 	l.index0 += index
 	l.log = l.log[index:]
+}
+
+func (l *Log) lastLogIndex() int {
+	return len(l.log) - 1
 }

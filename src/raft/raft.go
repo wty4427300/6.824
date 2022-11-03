@@ -197,7 +197,7 @@ func (rf *Raft) RequestVotesL() {
 		rf.currentTerm,
 		rf.me,
 		//当前节点的最后的日志索引
-		len(rf.log.log) - 1,
+		rf.log.lastLogIndex(),
 		//最后的term
 		rf.log.log[len(rf.log.log)-1].Term,
 	}
@@ -205,7 +205,7 @@ func (rf *Raft) RequestVotesL() {
 	//每个任期只能投1票
 	votes := 1
 	//遍历所有的节点向除了本节点以外的所有节点发送投票
-	for i, _ := range rf.peers {
+	for i := range rf.peers {
 		//其他节点发送投票prc
 		if i != rf.me {
 			go rf.candidateRequestVote(&args, &reply, votes, i)
@@ -253,12 +253,17 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 	//如果投票的任期大于节点现在任期，那么就同意这次投票
 	if args.Term > rf.currentTerm {
-		//投票成功需要更新自己的term
 		rf.newTermL(args.Term)
+	}
+	//只投一票
+	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 		rf.persist()
+		//同意投票重置超时时间
 		rf.setElectionTime()
+	} else {
+		reply.VoteGranted = false
 	}
 	reply.Term = rf.currentTerm
 }
@@ -268,7 +273,7 @@ func (rf *Raft) becomeLeaderL() {
 	DPrintf("节点[%v] becomeLeader", rf.me)
 	rf.state = Leader
 	for i := range rf.peers {
-		lastLogIndex := len(rf.log.log) - 1
+		lastLogIndex := rf.log.lastLogIndex()
 		rf.nextIndex[i] = lastLogIndex
 		rf.matchIndex[i] = 0
 	}
@@ -373,7 +378,7 @@ func (rf *Raft) tick() {
 	}
 	//如果当前时间大于超时时间说明心跳断开了
 	if time.Now().After(rf.electionTime) {
-		//随机超时时间
+		//发起一轮选举的时候重置超时时间
 		rf.setElectionTime()
 		//角色变为候选人,重新开始选举
 		rf.startElectionL()
