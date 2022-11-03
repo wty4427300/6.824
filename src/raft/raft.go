@@ -98,23 +98,6 @@ const (
 	Leader
 )
 
-// 下面附带一些会用到的一些角色转换的函数。
-func (rf *Raft) convertToCandidate() {
-	rf.state = Candidate
-	rf.currentTerm++
-	rf.votedFor = rf.me
-}
-
-func (rf *Raft) convertToFollower(newTerm int) {
-	rf.state = Follower
-	rf.currentTerm = newTerm
-	rf.votedFor = -1
-}
-
-func (rf *Raft) convertToLeader() {
-	rf.state = Leader
-}
-
 // GetState 获取raft的state
 func (rf *Raft) GetState() (int, bool) {
 	var term int
@@ -351,6 +334,7 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+//选举超时时间远远大于心跳时间
 const electionTime = 1 * time.Second
 
 //设置选举时间,为了减少选举冲突,这里每次选举的时间随机
