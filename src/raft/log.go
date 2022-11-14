@@ -6,6 +6,7 @@ import "fmt"
 type Entry struct {
 	Command interface{} //日志条目
 	Term    int         //候选人最后日志条目的任期号
+	Index   int
 }
 
 // Log 日志
@@ -49,4 +50,13 @@ func (l *Log) cutstart(index int) {
 
 func (l *Log) lastLogIndex() int {
 	return len(l.log) - 1
+}
+
+//获取当前索引位的
+func (l *Log) at(idx int) *Entry {
+	return &l.log[idx]
+}
+
+func (l *Log) slice(idx int) []Entry {
+	return l.log[idx:]
 }

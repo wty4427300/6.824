@@ -378,8 +378,6 @@ func (rf *Raft) tick() {
 	}
 	//如果当前时间大于超时时间说明心跳断开了
 	if time.Now().After(rf.electionTime) {
-		//发起一轮选举的时候重置超时时间
-		rf.setElectionTime()
 		//角色变为候选人,重新开始选举
 		rf.startElectionL()
 	}
@@ -393,6 +391,8 @@ func (rf *Raft) startElectionL() {
 	rf.state = Candidate
 	//先给自己投一票
 	rf.votedFor = rf.me
+	//发起一轮选举的时候重置超时时间
+	rf.setElectionTime()
 	rf.persist()
 	DPrintf("节点[%v]:发起选举 for term %v\n", rf.me, rf.currentTerm)
 	//给其他节点发送rpc

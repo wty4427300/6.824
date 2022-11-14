@@ -1,7 +1,7 @@
 package raft
 
 type AppendEntriesArgs struct {
-	Term         int
+	Term         int //leaders term
 	LeaderId     int
 	PrevLogIndex int     //最新日志的前一条日志索引
 	PrevLogTerm  int     //最新日志的前一条日志term
@@ -19,10 +19,36 @@ type AppendEntriesReply struct {
 }
 
 func (rf *Raft) appendEntries(heartbeat bool) {
-	//lastLogIndex := rf.log.lastLogIndex()
-	//for i:=range rf.peers{
-	//	if peer,_:=range r {
-	//
-	//	}
-	//}
+	lastLogIndex := rf.log.lastLogIndex()
+	//给所有服务器发送心跳
+	for i := range rf.peers {
+		if i == rf.me {
+			rf.setElectionTime()
+		}
+		if lastLogIndex >= rf.nextIndex[i] || heartbeat {
+			nextIndex := rf.nextIndex[i]
+			if nextIndex <= 0 {
+				nextIndex = 1
+			}
+			if lastLogIndex+1 < nextIndex {
+				nextIndex = lastLogIndex
+			}
+			prevLog := rf.log.at(nextIndex - 1)
+			args := AppendEntriesArgs{
+				Term:         rf.currentTerm,
+				LeaderId:     rf.me,
+				PrevLogIndex: prevLog.Index,
+				PrevLogTerm:  prevLog.Term,
+				Entries:      make([]Entry, lastLogIndex-nextIndex+1),
+				LeaderCommit: rf.commitIndex,
+			}
+			copy(args.Entries, rf.log.slice(nextIndex))
+			go rf.leaderSendEntries(i, &args)
+		}
+	}
+}
+
+//leaderSendEntries leader发送心跳
+func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
+
 }
