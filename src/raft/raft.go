@@ -38,7 +38,6 @@ import (
 // in part 2D you'll want to send other kinds of messages (e.g.,
 // snapshots) on the applyCh, but set CommandValid to false for these
 // other uses.
-//
 type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
@@ -128,9 +127,7 @@ func (rf *Raft) persist() {
 	// rf.persister.SaveRaftState(data)
 }
 
-//
 // restore previously persisted state.
-//
 func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
@@ -153,7 +150,6 @@ func (rf *Raft) readPersist(data []byte) {
 // CondInstallSnapshot
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
 // have more recent info since it communicate the snapshot on applyCh.
-//
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
 	// Your code here (2D).
 	return true
@@ -171,7 +167,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 //
-//投票参数的结构体，字段开头需要大写
+// 投票参数的结构体，字段开头需要大写
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
 	Term         int // 候选人的任期号
@@ -184,7 +180,7 @@ type RequestVoteArgs struct {
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 //
-//投票回复的结构体，字段开头必须大写。
+// 投票回复的结构体，字段开头必须大写。
 type RequestVoteReply struct {
 	// Your data here (2A).
 	Term        int  //当前任期号，以便于候选人去更新自己的任期号
@@ -201,19 +197,19 @@ func (rf *Raft) RequestVotesL() {
 		//最后的term
 		rf.log.log[len(rf.log.log)-1].Term,
 	}
-	var reply = RequestVoteReply{}
 	//每个任期只能投1票
 	votes := 1
 	//遍历所有的节点向除了本节点以外的所有节点发送投票
 	for i := range rf.peers {
 		//其他节点发送投票prc
+		var reply = RequestVoteReply{}
 		if i != rf.me {
-			go rf.candidateRequestVote(&args, &reply, votes, i)
+			go rf.candidateRequestVote(&args, &reply, &votes, i)
 		}
 	}
 }
 
-func (rf *Raft) candidateRequestVote(args *RequestVoteArgs, reply *RequestVoteReply, votes int, serverId int) {
+func (rf *Raft) candidateRequestVote(args *RequestVoteArgs, reply *RequestVoteReply, votes *int, serverId int) {
 	ok := rf.sendRequestVote(serverId, args, reply)
 	if !ok {
 		return
@@ -230,10 +226,12 @@ func (rf *Raft) candidateRequestVote(args *RequestVoteArgs, reply *RequestVoteRe
 	if !reply.VoteGranted {
 		return
 	}
+	DPrintf("节点[%d]: from 节点[%d] term一致,且投给节点[%d]\n", rf.me, serverId, rf.me)
 	//获取选票
-	votes += 1
+	*votes += 1
 	//获取一半以上的投票
-	if votes > len(rf.peers)/2 &&
+	DPrintf("节点[%d]: votes[%d] peers[%d]\n", rf.me, *votes, len(rf.peers))
+	if *votes > len(rf.peers)/2 &&
 		rf.currentTerm == args.Term &&
 		rf.state == Candidate {
 		rf.becomeLeaderL()
@@ -251,7 +249,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = false
 		return
 	}
-	//如果投票的任期大于节点现在任期，那么就同意这次投票
 	if args.Term > rf.currentTerm {
 		rf.newTermL(args.Term)
 	}
@@ -268,19 +265,20 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	reply.Term = rf.currentTerm
 }
 
-//成为leader后需要修改的一些状态
+// 成为leader后需要修改的一些状态
 func (rf *Raft) becomeLeaderL() {
-	DPrintf("节点[%v] becomeLeader", rf.me)
+	DPrintf("节点[%v]: 成为Leader", rf.me)
 	rf.state = Leader
 	for i := range rf.peers {
 		lastLogIndex := rf.log.lastLogIndex()
-		rf.nextIndex[i] = lastLogIndex
+		rf.nextIndex[i] = lastLogIndex + 1
 		rf.matchIndex[i] = 0
 	}
+	rf.appendEntries(true)
 }
 
 func (rf *Raft) newTermL(term int) {
-	DPrintf("节点[%v] newTerm %v follower\n", rf.me, term)
+	DPrintf("节点[%v]: newTerm[%v] follower\n", rf.me, term)
 	rf.currentTerm = term
 	//因为在新的任期中还没有投票所以设置为-1
 	rf.votedFor = -1
@@ -307,7 +305,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // if it's ever committed. the second return value is the current
 // term. the third return value is true if this server believes it is
 // the leader.
-//
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
@@ -328,7 +325,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 // up CPU time, perhaps causing later tests to fail and generating
 // confusing debug output. any goroutine with a long-running loop
 // should call killed() to check whether it should stop.
-//
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
@@ -339,19 +335,14 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-//选举超时时间远远大于心跳时间
+// 选举超时时间远远大于心跳时间
 const electionTime = 1 * time.Second
 
-//设置选举时间,为了减少选举冲突,这里每次选举的时间随机
+// 设置选举时间,为了减少选举冲突,这里每次选举的时间随机(150-300ms)
 func (rf *Raft) setElectionTime() {
-	//现在的时间
 	t := time.Now()
-	//超时的时间
-	t = t.Add(electionTime)
-	//随机的毫秒数
-	ms := rand2.Int63() % 300
 	//随机后的超时时间
-	t = t.Add(time.Duration(ms) * time.Millisecond)
+	t = t.Add(time.Duration(150+rand2.Intn(150)) * time.Millisecond)
 	rf.electionTime = t
 }
 
@@ -364,17 +355,16 @@ func (rf *Raft) ticker() {
 	}
 }
 
-//检查心跳
-//如果当前节点是leader就重置超时时间
-//如果当前节点不是leader(那就是follow)并且当前选举超时时间没有收到心跳，则重置心跳超时时间重新选举
+// 检查心跳
+// 如果当前节点是leader就发送心跳
+// 如果当前节点不是leader(那就是follow)并且当前选举超时时间没有收到心跳，则重置心跳超时时间重新选举
 func (rf *Raft) tick() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	//DPrintf("节点[%v]: tick state %v\n", rf.me, rf.state)
-	//随机超时时间减少选举冲突
 	if rf.state == Leader {
-		//设置超时时间
-		rf.setElectionTime()
+		//leader需要发送心跳
+		rf.appendEntries(true)
 	}
 	//如果当前时间大于超时时间说明心跳断开了
 	if time.Now().After(rf.electionTime) {
@@ -394,7 +384,7 @@ func (rf *Raft) startElectionL() {
 	//发起一轮选举的时候重置超时时间
 	rf.setElectionTime()
 	rf.persist()
-	DPrintf("节点[%v]:发起选举 for term %v\n", rf.me, rf.currentTerm)
+	DPrintf("节点[%v]: 发起选举 for term[%v]\n", rf.me, rf.currentTerm)
 	//给其他节点发送rpc
 	rf.RequestVotesL()
 }
@@ -409,7 +399,7 @@ func (rf *Raft) startElectionL() {
 // tester or service expects Raft to send ApplyMsg messages.
 // Make() must return quickly, so it should start goroutines
 // for any long-running work.
-//这里是用来初始化一个raft对象
+// 这里是用来初始化一个raft对象
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{}
@@ -425,7 +415,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.heartBeat = 100 * time.Millisecond
 	//设置选举的时间
 	rf.setElectionTime()
-	//初始化日志
+	//初始化日志,first index is 1
 	rf.log = mkLogEntry()
 	//已提交的最大日志索引
 	rf.commitIndex = 0
