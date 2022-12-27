@@ -34,6 +34,10 @@ func (l *Log) append(e Entry) {
 	l.log = append(l.log, e)
 }
 
+func (l *Log) appends(entries ...Entry) {
+	l.log = append(l.log, entries...)
+}
+
 func (l *Log) start() int {
 	return l.index0
 }
@@ -60,6 +64,10 @@ func (l *Log) at(idx int) *Entry {
 
 func (l *Log) slice(idx int) []Entry {
 	return l.log[idx:]
+}
+
+func (l *Log) truncate(idx int) {
+	l.log = l.log[:idx]
 }
 
 func min(a int, b int) int {

@@ -306,13 +306,24 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // term. the third return value is true if this server believes it is
 // the leader.
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.state != Leader {
+		return -1, rf.currentTerm, false
+	}
+	index := rf.log.lastLogIndex() + 1
+	term := rf.currentTerm
 
-	// Your code here (2B).
-
-	return index, term, isLeader
+	log := Entry{
+		Command: command,
+		Index:   index,
+		Term:    term,
+	}
+	rf.log.append(log)
+	rf.persist()
+	DPrintf("[%v]: term %v Start %v", rf.me, term, log)
+	rf.appendEntries(false)
+	return index, term, true
 }
 
 // Kill
@@ -387,6 +398,11 @@ func (rf *Raft) startElectionL() {
 	DPrintf("节点[%v]: 发起选举 for term[%v]\n", rf.me, rf.currentTerm)
 	//给其他节点发送rpc
 	rf.RequestVotesL()
+}
+
+func (rf *Raft) apply() {
+	rf.applyCond.Broadcast()
+	DPrintf("[%v]: rf.applyCond.Broadcast()", rf.me)
 }
 
 // Make

@@ -123,12 +123,12 @@ func (rf *Raft) leaderCommitRule() {
 			if serverId != rf.me && rf.matchIndex[serverId] >= n {
 				counter++
 			}
-			//if counter > len(rf.peers)/2 {
-			//	rf.commitIndex = n
-			//	DPrintf("[%v] leader尝试提交 index %v", rf.me, rf.commitIndex)
-			//	rf.apply()
-			//	break
-			//}
+			if counter > len(rf.peers)/2 {
+				rf.commitIndex = n
+				DPrintf("[%v] leader尝试提交 index %v", rf.me, rf.commitIndex)
+				rf.apply()
+				break
+			}
 		}
 	}
 }
@@ -180,26 +180,26 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	//for idx, entry := range args.Entries {
-	//	// append entries rpc 3
-	//	if entry.Index <= rf.log.lastLogIndex() && rf.log.at(entry.Index).Term != entry.Term {
-	//		rf.log.truncate(entry.Index)
-	//		rf.persist()
-	//	}
-	//	// append entries rpc 4
-	//	if entry.Index > rf.log.lastLog().Index {
-	//		rf.log.append(args.Entries[idx:]...)
-	//		DPrintf("[%d]: follower append [%v]", rf.me, args.Entries[idx:])
-	//		rf.persist()
-	//		break
-	//	}
-	//}
-	//
-	//// append entries rpc 5
-	//if args.LeaderCommit > rf.commitIndex {
-	//	rf.commitIndex = min(args.LeaderCommit, rf.log.lastLog().Index)
-	//	rf.apply()
-	//}
+	for idx, entry := range args.Entries {
+		// append entries rpc 3
+		if entry.Index <= rf.log.lastLogIndex() && rf.log.at(entry.Index).Term != entry.Term {
+			rf.log.truncate(entry.Index)
+			rf.persist()
+		}
+		// append entries rpc 4
+		if entry.Index > rf.log.lastLogIndex() {
+			rf.log.appends(args.Entries[idx:]...)
+			DPrintf("[%d]: follower append [%v]", rf.me, args.Entries[idx:])
+			rf.persist()
+			break
+		}
+	}
+
+	// append entries rpc 5
+	if args.LeaderCommit > rf.commitIndex {
+		rf.commitIndex = min(args.LeaderCommit, rf.log.lastLogIndex())
+		rf.apply()
+	}
 	reply.Success = true
 }
 
