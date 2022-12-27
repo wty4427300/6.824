@@ -323,7 +323,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	}
 	rf.log.append(log)
 	rf.persist()
-	DPrintf("[%v]: term %v Start %v", rf.me, term, log)
+	DPrintf("[%v]: term [%v] StartLog [%v]", rf.me, term, log)
 	rf.appendEntries(false)
 	return index, term, true
 }
