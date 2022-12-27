@@ -216,6 +216,7 @@ func (rf *Raft) candidateRequestVote(args *RequestVoteArgs, reply *RequestVoteRe
 	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	//term落后
 	if reply.Term > args.Term {
 		rf.newTermL(reply.Term)
 		return
@@ -230,7 +231,6 @@ func (rf *Raft) candidateRequestVote(args *RequestVoteArgs, reply *RequestVoteRe
 	//获取选票
 	*votes += 1
 	//获取一半以上的投票
-	DPrintf("节点[%d]: votes[%d] peers[%d]\n", rf.me, *votes, len(rf.peers))
 	if *votes > len(rf.peers)/2 &&
 		rf.currentTerm == args.Term &&
 		rf.state == Candidate {
@@ -252,8 +252,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if args.Term > rf.currentTerm {
 		rf.newTermL(args.Term)
 	}
-	//只投一票
-	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
+	//加强选举,term最新,日志最长
+	lastLog := rf.log.lastLog()
+	upToDate := args.LastLogTerm > lastLog.Term || (args.LastLogTerm == lastLog.Term && args.LastLogIndex >= lastLog.Index)
+	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) || upToDate {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 		rf.persist()

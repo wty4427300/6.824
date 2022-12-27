@@ -52,6 +52,11 @@ func (l *Log) cutstart(index int) {
 	l.log = l.log[index:]
 }
 
+// 获取最新日志
+func (l *Log) lastLog() *Entry {
+	return l.at(len(l.log) - 1)
+}
+
 // 获取最新日志的索引
 func (l *Log) lastLogIndex() int {
 	return len(l.log) - 1
