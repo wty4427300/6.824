@@ -254,8 +254,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 	//加强选举,term最新,日志最长
 	lastLog := rf.log.lastLog()
-	upToDate := args.LastLogTerm > lastLog.Term || (args.LastLogTerm == lastLog.Term && args.LastLogIndex >= lastLog.Index)
-	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) || upToDate {
+	powerPeer := args.LastLogTerm > lastLog.Term || (args.LastLogTerm == lastLog.Term && args.LastLogIndex >= lastLog.Index)
+	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) || powerPeer {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 		rf.persist()
@@ -313,17 +313,17 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	if rf.state != Leader {
 		return -1, rf.currentTerm, false
 	}
+
 	index := rf.log.lastLogIndex() + 1
 	term := rf.currentTerm
-
 	log := Entry{
 		Command: command,
 		Index:   index,
 		Term:    term,
 	}
 	rf.log.append(log)
+	DPrintf("节点[%v]: term[%v] addLog[%v]", rf.me, term, log)
 	rf.persist()
-	DPrintf("[%v]: term [%v] StartLog [%v]", rf.me, term, log)
 	rf.appendEntries(false)
 	return index, term, true
 }

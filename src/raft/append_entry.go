@@ -73,14 +73,14 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 			next := match + 1
 			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], next)
 			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], match)
-			DPrintf("节点[%v]: %v append success next %v match %v", rf.me, serverId, rf.nextIndex[serverId], rf.matchIndex[serverId])
+			DPrintf("节点[%v]: [%v] append success next[%v] match[%v]", rf.me, serverId, rf.nextIndex[serverId], rf.matchIndex[serverId])
 		} else if reply.Conflict {
-			DPrintf("节点[%v]: Conflict from %v %#v", rf.me, serverId, reply)
+			DPrintf("节点[%v]: Conflict from [%v] [%#v]", rf.me, serverId, reply)
 			if reply.XTerm == -1 {
 				rf.nextIndex[serverId] = reply.XLen
 			} else {
 				lastLogInXTerm := rf.findLastLogInTerm(reply.XTerm)
-				DPrintf("[%v]: lastLogInXTerm %v", rf.me, lastLogInXTerm)
+				DPrintf("节点[%v]: lastLogInXTerm[%v]", rf.me, lastLogInXTerm)
 				if lastLogInXTerm > 0 {
 					rf.nextIndex[serverId] = lastLogInXTerm
 				} else {
