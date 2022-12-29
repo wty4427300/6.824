@@ -99,15 +99,11 @@ const (
 
 // GetState 获取raft的state
 func (rf *Raft) GetState() (int, bool) {
-	var term int
-	var isleader bool
 	// Your code here (2A).
-	term = rf.currentTerm
-	if rf.state == Leader {
-		isleader = true
-	} else {
-		isleader = false
-	}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	term := rf.currentTerm
+	isleader := rf.state == Leader
 	return term, isleader
 }
 
@@ -195,9 +191,8 @@ func (rf *Raft) RequestVotesL() {
 		//当前节点的最后的日志索引
 		rf.log.lastLogIndex(),
 		//最后的term
-		rf.log.log[len(rf.log.log)-1].Term,
+		rf.log.lastLog().Term,
 	}
-	//每个任期只能投1票
 	votes := 1
 	//遍历所有的节点向除了本节点以外的所有节点发送投票
 	for i := range rf.peers {
@@ -227,9 +222,8 @@ func (rf *Raft) candidateRequestVote(args *RequestVoteArgs, reply *RequestVoteRe
 	if !reply.VoteGranted {
 		return
 	}
-	DPrintf("节点[%d]: from 节点[%d] term一致,且投给节点[%d]\n", rf.me, serverId, rf.me)
 	//获取选票
-	*votes += 1
+	*votes++
 	//获取一半以上的投票
 	if *votes > len(rf.peers)/2 &&
 		rf.currentTerm == args.Term &&
@@ -243,24 +237,28 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	//给其他节点发送投票
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
+	if args.Term > rf.currentTerm {
+		rf.newTermL(args.Term)
+	}
+
 	//投票失败
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
 		return
 	}
-	if args.Term > rf.currentTerm {
-		rf.newTermL(args.Term)
-	}
 	//加强选举,term最新,日志最长
 	lastLog := rf.log.lastLog()
-	powerPeer := args.LastLogTerm > lastLog.Term || (args.LastLogTerm == lastLog.Term && args.LastLogIndex >= lastLog.Index)
-	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) || powerPeer {
+	powerPeer := args.LastLogTerm > lastLog.Term ||
+		(args.LastLogTerm == lastLog.Term && args.LastLogIndex >= lastLog.Index)
+	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && powerPeer {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 		rf.persist()
 		//同意投票重置超时时间
 		rf.setElectionTime()
+		DPrintf("节点[%d]: 节点[%d]投票给节点[%d]\n", rf.me, rf.currentTerm, rf.me)
 	} else {
 		reply.VoteGranted = false
 	}
@@ -269,10 +267,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 // 成为leader后需要修改的一些状态
 func (rf *Raft) becomeLeaderL() {
-	DPrintf("节点[%v]: 成为Leader", rf.me)
+	DPrintf("节点[%v]: 成为Leader term[%v]", rf.me, rf.currentTerm)
 	rf.state = Leader
+	lastLogIndex := rf.log.lastLogIndex()
 	for i := range rf.peers {
-		lastLogIndex := rf.log.lastLogIndex()
 		rf.nextIndex[i] = lastLogIndex + 1
 		rf.matchIndex[i] = 0
 	}
@@ -280,11 +278,11 @@ func (rf *Raft) becomeLeaderL() {
 }
 
 func (rf *Raft) newTermL(term int) {
-	DPrintf("节点[%v]: newTerm[%v] follower\n", rf.me, term)
 	rf.currentTerm = term
 	//因为在新的任期中还没有投票所以设置为-1
 	rf.votedFor = -1
 	rf.state = Follower
+	DPrintf("节点[%v]: newTerm[%v] follower\n", rf.me, term)
 	rf.persist()
 }
 
@@ -348,23 +346,18 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-// 选举超时时间远远大于心跳时间
-const electionTime = 1 * time.Second
-
 // 设置选举时间,为了减少选举冲突,这里每次选举的时间随机(150-300ms)
 func (rf *Raft) setElectionTime() {
 	t := time.Now()
-	//随机后的超时时间
-	t = t.Add(time.Duration(150+rand2.Intn(150)) * time.Millisecond)
-	rf.electionTime = t
+	rf.electionTime = t.Add(time.Duration(150+rand2.Intn(150)) * time.Millisecond)
 }
 
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
-		rf.tick()
 		time.Sleep(rf.heartBeat)
+		rf.tick()
 	}
 }
 
@@ -447,7 +440,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-	//发送心跳
 	go rf.ticker()
 	return rf
 }

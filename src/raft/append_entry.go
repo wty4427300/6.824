@@ -32,6 +32,7 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 		nextIndex := rf.nextIndex[i]
 		if lastLogIndex >= nextIndex || heartbeat {
 			if nextIndex <= 0 {
+				//日志的index0为空日志,所以从1开始
 				nextIndex = 1
 			}
 			if lastLogIndex+1 < nextIndex {
@@ -69,11 +70,11 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 	// rules for leader 3.1
 	if args.Term == rf.currentTerm {
 		if reply.Success {
-			match := args.PrevLogIndex + len(args.Entries)
-			next := match + 1
-			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], next)
-			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], match)
-			DPrintf("节点[%v]: [%v] append success next[%v] match[%v]", rf.me, serverId, rf.nextIndex[serverId], rf.matchIndex[serverId])
+			matchIndex := args.PrevLogIndex + len(args.Entries)
+			nextIndex := matchIndex + 1
+			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], nextIndex)
+			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], matchIndex)
+			DPrintf("节点[%v]: 节点[%v] append success next[%v] match[%v]", rf.me, serverId, rf.nextIndex[serverId], rf.matchIndex[serverId])
 		} else if reply.Conflict {
 			DPrintf("节点[%v]: Conflict from [%v] [%#v]", rf.me, serverId, reply)
 			if reply.XTerm == -1 {
@@ -88,7 +89,7 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 				}
 			}
 
-			DPrintf("[%v]: leader nextIndex[%v] %v", rf.me, serverId, rf.nextIndex[serverId])
+			DPrintf("节点[%v]: leader nextIndex[%v] %v", rf.me, serverId, rf.nextIndex[serverId])
 		} else if rf.nextIndex[serverId] > 1 {
 			rf.nextIndex[serverId]--
 		}
@@ -136,18 +137,17 @@ func (rf *Raft) leaderCommitRule() {
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("节点[%d]: term[%d] follower 收到 [%v] AppendEntries %v, prevIndex[%v], prevTerm[%v]", rf.me, rf.currentTerm, args.LeaderId, args.Entries, args.PrevLogIndex, args.PrevLogTerm)
+	DPrintf("节点[%d]: term[%d] follower 收到 leader[%v] AppendEntries[%v], prevIndex[%v], prevTerm[%v]", rf.me, rf.currentTerm, args.LeaderId, args.Entries, args.PrevLogIndex, args.PrevLogTerm)
 	// rules for servers
 	// all servers 2
 	reply.Success = false
 	reply.Term = rf.currentTerm
-	if args.Term > rf.currentTerm {
-		rf.newTermL(args.Term)
-		return
-	}
-
 	// append entries rpc 1
 	if args.Term < rf.currentTerm {
+		return
+	}
+	if args.Term > rf.currentTerm {
+		rf.newTermL(args.Term)
 		return
 	}
 	rf.setElectionTime()
@@ -162,9 +162,11 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.XTerm = -1
 		reply.XIndex = -1
 		reply.XLen = len(rf.log.log)
-		DPrintf("[%v]: Conflict XTerm %v, XIndex %v, XLen %v", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
+		DPrintf("[%v]: Conflict XTerm[%v], XIndex[%v], XLen[%v]", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
+
+	//快速冲突
 	if rf.log.at(args.PrevLogIndex).Term != args.PrevLogTerm {
 		reply.Conflict = true
 		xTerm := rf.log.at(args.PrevLogIndex).Term
@@ -176,13 +178,14 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		reply.XTerm = xTerm
 		reply.XLen = len(rf.log.log)
-		DPrintf("[%v]: Conflict XTerm %v, XIndex %v, XLen %v", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
+		DPrintf("节点[%v]: Conflict XTerm[%v], XIndex[%v], XLen[%v]", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
 
 	for idx, entry := range args.Entries {
 		// append entries rpc 3
 		if entry.Index <= rf.log.lastLogIndex() && rf.log.at(entry.Index).Term != entry.Term {
+			//index相同,term不同,删除之后的所有日志
 			rf.log.truncate(entry.Index)
 			rf.persist()
 		}
