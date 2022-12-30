@@ -137,7 +137,7 @@ func (rf *Raft) leaderCommitRule() {
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("节点[%d]: term[%d] follower 收到 leader[%v] AppendEntries[%v], prevIndex[%v], prevTerm[%v]", rf.me, rf.currentTerm, args.LeaderId, args.Entries, args.PrevLogIndex, args.PrevLogTerm)
+	DPrintf("节点[%d]: term[%d] follower 收到 leader[%v] AppendEntries[%d], prevIndex[%v], prevTerm[%v]", rf.me, rf.currentTerm, args.LeaderId, args.Entries, args.PrevLogIndex, args.PrevLogTerm)
 	// rules for servers
 	// all servers 2
 	reply.Success = false

@@ -320,7 +320,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Term:    term,
 	}
 	rf.log.append(log)
-	DPrintf("节点[%v]: term[%v] addLog[%v]", rf.me, term, log)
+	DPrintf("节点[%v]: term[%v] addLog [%d]", rf.me, term, log)
 	rf.persist()
 	rf.appendEntries(false)
 	return index, term, true
