@@ -76,6 +76,7 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], matchIndex)
 			DPrintf("节点[%v]: 节点[%v] append success next[%v] match[%v]", rf.me, serverId, rf.nextIndex[serverId], rf.matchIndex[serverId])
 		} else if reply.Conflict {
+			//日志冲突
 			DPrintf("节点[%v]: Conflict from [%v] [%#v]", rf.me, serverId, reply)
 			if reply.XTerm == -1 {
 				rf.nextIndex[serverId] = reply.XLen
