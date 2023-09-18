@@ -32,7 +32,7 @@ func (rf *Raft) appendEntries(heartbeat bool) {
 		nextIndex := rf.nextIndex[i]
 		if lastLogIndex >= nextIndex || heartbeat {
 			if nextIndex <= 0 {
-				//日志的index0为空日志,所以从1开始
+				//日志的index 0为空日志,所以从1开始
 				nextIndex = 1
 			}
 			if lastLogIndex+1 < nextIndex {
@@ -127,7 +127,7 @@ func (rf *Raft) leaderCommitRule() {
 			}
 			if counter > len(rf.peers)/2 {
 				rf.commitIndex = n
-				DPrintf("[%v] leader尝试提交 index %v", rf.me, rf.commitIndex)
+				DPrintf("节点[%v] leader尝试提交 index %v", rf.me, rf.commitIndex)
 				rf.apply()
 				break
 			}
@@ -167,7 +167,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	//快速冲突
+	//快速冲突处理
 	if rf.log.at(args.PrevLogIndex).Term != args.PrevLogTerm {
 		reply.Conflict = true
 		xTerm := rf.log.at(args.PrevLogIndex).Term
@@ -193,7 +193,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// append entries rpc 4
 		if entry.Index > rf.log.lastLogIndex() {
 			rf.log.appends(args.Entries[idx:]...)
-			DPrintf("[%d]: follower append [%v]", rf.me, args.Entries[idx:])
+			DPrintf("节点[%d]: follower append [%v]", rf.me, args.Entries[idx:])
 			rf.persist()
 			break
 		}

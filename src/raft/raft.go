@@ -308,12 +308,12 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	term := rf.currentTerm
 	if rf.state != Leader {
-		return -1, rf.currentTerm, false
+		return -1, term, false
 	}
 
 	index := rf.log.lastLogIndex() + 1
-	term := rf.currentTerm
 	log := Entry{
 		Command: command,
 		Index:   index,
@@ -397,7 +397,7 @@ func (rf *Raft) startElectionL() {
 
 func (rf *Raft) apply() {
 	rf.applyCond.Broadcast()
-	DPrintf("[%v]: rf.applyCond.Broadcast()", rf.me)
+	DPrintf("节点[%v]: rf.applyCond.Broadcast()", rf.me)
 }
 
 // Make
