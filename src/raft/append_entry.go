@@ -162,6 +162,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 	// append entries rpc 2
 	if rf.log.lastLogIndex() < args.PrevLogIndex {
+		//中间缺少日志
 		reply.Conflict = true
 		reply.XTerm = -1
 		reply.XIndex = -1
@@ -176,6 +177,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		xTerm := rf.log.at(args.PrevLogIndex).Term
 		for xIndex := args.PrevLogIndex; xIndex > 0; xIndex-- {
 			if rf.log.at(xIndex-1).Term != xTerm {
+				//找到term一直的index
 				reply.XIndex = xIndex
 				break
 			}
@@ -189,7 +191,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	for idx, entry := range args.Entries {
 		// append entries rpc 3
 		if entry.Index <= rf.log.lastLogIndex() && rf.log.at(entry.Index).Term != entry.Term {
-			//index相同,term不同,删除之后的所有日志
+			//旧日志纠错,index相同,term不同,删除之后的所有日志
 			rf.log.truncate(entry.Index)
 			rf.persist()
 		}
