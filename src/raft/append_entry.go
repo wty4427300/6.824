@@ -70,6 +70,7 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 	// rules for leader 3.1
 	if args.Term == rf.currentTerm {
 		if reply.Success {
+			//心跳发送成功
 			matchIndex := args.PrevLogIndex + len(args.Entries)
 			nextIndex := matchIndex + 1
 			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], nextIndex)
@@ -92,6 +93,7 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 
 			DPrintf("节点[%v]: leader nextIndex[%v] %v", rf.me, serverId, rf.nextIndex[serverId])
 		} else if rf.nextIndex[serverId] > 1 {
+			//心跳失败,重试
 			rf.nextIndex[serverId]--
 		}
 		rf.leaderCommitRule()
@@ -143,12 +145,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// all servers 2
 	reply.Success = false
 	reply.Term = rf.currentTerm
-	// append entries rpc 1
-	if args.Term < rf.currentTerm {
-		return
-	}
+	//心跳任期>当前任期则更新任期
 	if args.Term > rf.currentTerm {
 		rf.newTermL(args.Term)
+		return
+	}
+	// append entries rpc 1
+	if args.Term < rf.currentTerm {
 		return
 	}
 	rf.setElectionTime()
