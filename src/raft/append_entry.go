@@ -119,6 +119,7 @@ func (rf *Raft) leaderCommitRule() {
 	}
 
 	for n := rf.commitIndex + 1; n <= rf.log.lastLogIndex(); n++ {
+		//lead不允许commit更新为旧term或future term,所以这个判断尤为重要
 		if rf.log.at(n).Term != rf.currentTerm {
 			continue
 		}
