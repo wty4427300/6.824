@@ -472,7 +472,7 @@ func (rf *Raft) applier() {
 }
 
 func (rf *Raft) commits() string {
-	nums := []string{}
+	var nums []string
 	for i := 0; i <= rf.lastApplied; i++ {
 		nums = append(nums, fmt.Sprintf("%4d", rf.log.at(i).Command))
 	}
