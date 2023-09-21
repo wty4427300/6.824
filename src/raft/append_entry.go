@@ -125,6 +125,7 @@ func (rf *Raft) leaderCommitRule() {
 		}
 		counter := 1
 		for serverId := 0; serverId < len(rf.peers); serverId++ {
+			//判断日志是否可以提交,也是matchIndex的作用之一
 			if serverId != rf.me && rf.matchIndex[serverId] >= n {
 				counter++
 			}
@@ -167,7 +168,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Conflict = true
 		reply.XTerm = -1
 		reply.XIndex = -1
-		reply.XLen = len(rf.log.log)
+		reply.XLen = len(rf.log.Log)
 		DPrintf("[%v]: Conflict XTerm[%v], XIndex[%v], XLen[%v]", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
@@ -184,7 +185,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			}
 		}
 		reply.XTerm = xTerm
-		reply.XLen = len(rf.log.log)
+		reply.XLen = len(rf.log.Log)
 		DPrintf("节点[%v]: Conflict XTerm[%v], XIndex[%v], XLen[%v]", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
