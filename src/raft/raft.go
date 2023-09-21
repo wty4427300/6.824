@@ -447,6 +447,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	return rf
 }
 
+// applier 专门用来commit的协程,调用时机当commitIndex更新之后
 func (rf *Raft) applier() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -455,6 +456,7 @@ func (rf *Raft) applier() {
 		// all server rule 1
 		if rf.commitIndex > rf.lastApplied && rf.log.lastLog().Index > rf.lastApplied {
 			rf.lastApplied++
+			//每次commit都需要发送applyMsg
 			applyMsg := ApplyMsg{
 				CommandValid: true,
 				Command:      rf.log.at(rf.lastApplied).Command,
@@ -462,6 +464,7 @@ func (rf *Raft) applier() {
 			}
 			DPrintVerbose("[%v]: COMMIT %d: %v", rf.me, rf.lastApplied, rf.commits())
 			rf.mu.Unlock()
+			//因为写入无缓冲channel是一个阻塞的操作,所以先释放锁,这样可以减少锁持有的时间
 			rf.applyCh <- applyMsg
 			rf.mu.Lock()
 		} else {
