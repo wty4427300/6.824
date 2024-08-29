@@ -73,8 +73,8 @@ func (rf *Raft) leaderSendEntries(serverId int, args *AppendEntriesArgs) {
 			//心跳发送成功
 			matchIndex := args.PrevLogIndex + len(args.Entries)
 			nextIndex := matchIndex + 1
-			rf.nextIndex[serverId] = max(rf.nextIndex[serverId], nextIndex)
-			rf.matchIndex[serverId] = max(rf.matchIndex[serverId], matchIndex)
+			rf.nextIndex[serverId] = Max(rf.nextIndex[serverId], nextIndex)
+			rf.matchIndex[serverId] = Max(rf.matchIndex[serverId], matchIndex)
 			DPrintf("节点[%v]: 节点[%v] append success next[%v] match[%v]", rf.me, serverId, rf.nextIndex[serverId], rf.matchIndex[serverId])
 		} else if reply.Conflict {
 			//日志冲突
@@ -168,7 +168,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Conflict = true
 		reply.XTerm = -1
 		reply.XIndex = -1
-		reply.XLen = len(rf.log.Log)
+		reply.XLen = len(rf.log.Logs)
 		DPrintf("[%v]: Conflict XTerm[%v], XIndex[%v], XLen[%v]", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
@@ -185,7 +185,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			}
 		}
 		reply.XTerm = xTerm
-		reply.XLen = len(rf.log.Log)
+		reply.XLen = len(rf.log.Logs)
 		DPrintf("节点[%v]: Conflict XTerm[%v], XIndex[%v], XLen[%v]", rf.me, reply.XTerm, reply.XIndex, reply.XLen)
 		return
 	}
@@ -208,7 +208,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// append entries rpc 5
 	if args.LeaderCommit > rf.commitIndex {
-		rf.commitIndex = min(args.LeaderCommit, rf.log.lastLogIndex())
+		rf.commitIndex = Min(args.LeaderCommit, rf.log.lastLogIndex())
 		rf.apply()
 	}
 	reply.Success = true

@@ -154,7 +154,7 @@ func (rf *Raft) readPersist(data []byte) {
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
 // have more recent info since it communicate the snapshot on applyCh.
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
-	// Your code here (2D).
+
 	return true
 }
 
@@ -163,7 +163,26 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 // service no longer needs the log through (and including)
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
-	// Your code here (2D).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	//从头开始压缩,如果之前没有被压缩过,那么log的Index0=0
+	snapshotIndex := rf.log.start()
+	if index < snapshotIndex {
+		DPrintf("[节点 %v] 拒绝生成该索引位：[%v] 的快照  当前的节点快照索引为 [%v] 当前节点term [%v]", rf.me, index, snapshotIndex, rf.currentTerm)
+		return
+	}
+	//删除已经被压缩的log
+	rf.log.cutStart(index - snapshotIndex)
+	rf.log.Logs[0].Command = nil
+
+	//保存状态
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.state)
+
+	//保存状态和快照
+	rf.persister.SaveStateAndSnapshot(w.Bytes(), snapshot)
 }
 
 // RequestVoteArgs

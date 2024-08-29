@@ -11,7 +11,7 @@ type Entry struct {
 
 // Log 日志
 type Log struct {
-	Log    []Entry //日志
+	Logs   []Entry //日志
 	Index0 int     //快照索引
 }
 
@@ -31,11 +31,11 @@ func mkLog(log []Entry, index0 int) Log {
 
 // 添加日志
 func (l *Log) append(e Entry) {
-	l.Log = append(l.Log, e)
+	l.Logs = append(l.Logs, e)
 }
 
 func (l *Log) appends(entries ...Entry) {
-	l.Log = append(l.Log, entries...)
+	l.Logs = append(l.Logs, entries...)
 }
 
 func (l *Log) start() int {
@@ -43,46 +43,52 @@ func (l *Log) start() int {
 }
 
 // 获取多出的log
-func (l *Log) cutend(index int) {
-	l.Log = l.Log[0 : index-l.Index0]
+func (l *Log) cutEnd(index int) {
+	l.Logs = l.Logs[0 : index-l.Index0]
 }
 
-func (l *Log) cutstart(index int) {
+func (l *Log) cutStart(index int) {
+	//创建一个新数组来存储保留的日志条目
+	newLogs := make([]Entry, len(l.Logs)-index)
+	// 将需要保留的日志条目复制到新数组中
+	copy(newLogs, l.Logs[index:])
+	// 更新日志起始索引
 	l.Index0 += index
-	l.Log = l.Log[index:]
+	// 更新日志数组
+	l.Logs = newLogs
 }
 
 // 获取最新日志
 func (l *Log) lastLog() *Entry {
-	return l.at(len(l.Log) - 1)
+	return l.at(len(l.Logs) - 1)
 }
 
 // 获取最新日志的索引
 func (l *Log) lastLogIndex() int {
-	return len(l.Log) - 1
+	return len(l.Logs) - 1
 }
 
 // 获取当前索引位的
 func (l *Log) at(idx int) *Entry {
-	return &l.Log[idx]
+	return &l.Logs[idx]
 }
 
 func (l *Log) slice(idx int) []Entry {
-	return l.Log[idx:]
+	return l.Logs[idx:]
 }
 
 func (l *Log) truncate(idx int) {
-	l.Log = l.Log[:idx]
+	l.Logs = l.Logs[:idx]
 }
 
-func min(a int, b int) int {
+func Min(a int, b int) int {
 	if a > b {
 		return b
 	}
 	return a
 }
 
-func max(a int, b int) int {
+func Max(a int, b int) int {
 	if a > b {
 		return a
 	}
